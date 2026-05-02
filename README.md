@@ -13,7 +13,8 @@ pip install uv && uv pip install .
 git clone git@github.com:julietgolf/asgs-config-tui.git
 python -m venv .venv
 .venv/Scripts/activate
-pip install uv && uv pip install .
+pip install uv
+uv pip install .
 ```
 
 # Usage
