@@ -7,7 +7,7 @@ from asgs_config.validator import ActiveStormValidator
 from asgs_config.config_generator import StormConfigGenerator
 
 # Constants
-SETTINGS_FILE = "settings.json"
+SETTINGS_FILE = open(os.path.join(os.path.dirname(__file__), "settings.json"))
 DEFAULT_SETTINGS = {
     "template_path": "template.sh",
     "nhc_url": ActiveStormValidator.DEFAULT_URL
