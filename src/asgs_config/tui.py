@@ -3,21 +3,50 @@ import json
 import os
 import sys
 import argparse
+import logging
 from asgs_config.validator import ActiveStormValidator
 from asgs_config.config_generator import StormConfigGenerator
 
+# Configure logging
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
+
 # Constants
-SETTINGS_FILE = open(os.path.join(os.path.dirname(__file__), "settings.json"))
+SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
 DEFAULT_SETTINGS = {
-    "template_path": "template.sh",
-    "nhc_url": ActiveStormValidator.DEFAULT_URL
+    "template_path": "config_template.sh",
+    "nhc_url": "https://www.nhc.noaa.gov/CurrentStorms.json",
+    "default_dir":"."
 }
+
+def set_secure_permissions(path):
+    """Sets file permissions to 710 (Owner: RWX, Group: X, Others: None) or Windows equivalent."""
+    if sys.platform == "win32":
+        # Windows equivalent: Owner Full Control, Group Execute (Read/Execute), Others None
+        # We use icacls to set granular permissions
+        try:
+            # Disable inheritance and remove all permissions
+            os.system(f'icacls "{path}" /inheritance:r /quiet')
+            # Grant current user Full Control
+            username = os.getlogin()
+            os.system(f'icacls "{path}" /grant:r "{username}":(F) /quiet')
+            # Grant 'Users' group Execute (RX) - closest to '1' (X) as Windows usually bundles R with X
+            os.system(f'icacls "{path}" /grant:r *S-1-5-32-545:(RX) /quiet')
+        except Exception as e:
+            logger.warning(f"Failed to set Windows permissions: {e}")
+    else:
+        # Unix 710: rwx--x---
+        try:
+            os.chmod(path, 0o710)
+        except Exception as e:
+            logger.warning(f"Failed to set Unix permissions: {e}")
 
 def load_settings():
     """Loads settings from JSON, creating default if missing."""
     if not os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'w') as f:
             json.dump(DEFAULT_SETTINGS, f, indent=4)
+        set_secure_permissions(SETTINGS_FILE)
         return DEFAULT_SETTINGS
     
     with open(SETTINGS_FILE, 'r') as f:
@@ -30,10 +59,15 @@ def load_settings():
             settings[k] = v
             updated = True
     if updated:
-        with open(SETTINGS_FILE, 'w') as f:
-            json.dump(settings, f, indent=4)
+        save_settings(settings)
             
     return settings
+
+def save_settings(settings):
+    """Saves settings to JSON and ensures secure permissions."""
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(settings, f, indent=4)
+    set_secure_permissions(SETTINGS_FILE)
 
 def get_input(stdscr, y, x, prompt, initial_text="", max_len=50, secret=False):
     """Safely gets text input from the user in curses."""
@@ -238,6 +272,26 @@ def main(stdscr, nhc_url):
 def run():
     parser = argparse.ArgumentParser(description="Storm Configuration Generator TUI")
     parser.add_argument("--url", help="Custom NHC JSON URL")
+    parser.add_argument("--set-url", help="Permanently set the NHC JSON URL in settings")
+    parser.add_argument("--set-template", help="Permanently set the template path in settings")
+    parser.add_argument("--set-dir", help="Permanently set the default output directory in settings")
     args = parser.parse_args()
     
+    # Handle settings updates
+    if args.set_url or args.set_template or args.set_dir:
+        settings = load_settings()
+        if args.set_url:
+            settings["nhc_url"] = args.set_url
+            print(f"Setting 'nhc_url' updated to: {args.set_url}")
+        if args.set_template:
+            settings["template_path"] = args.set_template
+            print(f"Setting 'template_path' updated to: {args.set_template}")
+        if args.set_dir:
+            settings["default_dir"] = args.set_dir
+            print(f"Setting 'default_dir' updated to: {args.set_dir}")
+        save_settings(settings)
+        # If we only wanted to set values, we could exit here, but usually, 
+        # people might want to run the TUI after setting. 
+        # For now, let's continue to the TUI.
+
     curses.wrapper(main, args.url)
