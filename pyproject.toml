@@ -1,0 +1,16 @@
+[project]
+name = "asgs-config"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "requests>=2.33.1",
+    "windows-curses>=2.4.2 ; sys_platform == 'win32'",
+]
+
+[tool.uv]
+package = true
+
+[project.scripts]
+asgs-config="asgs_config.tui:run"
