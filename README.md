@@ -2,6 +2,7 @@
 ## Linux
 ```bash
 git clone git@github.com:julietgolf/asgs-config-tui.git
+cd asgs-config-tui
 python -m venv .venv
 . .venv/bin/activate
 pip install uv && uv pip install .
@@ -11,6 +12,7 @@ pip install uv && uv pip install .
 
 ```powershell
 git clone git@github.com:julietgolf/asgs-config-tui.git
+cd asgs-config-tui
 python -m venv .venv
 .venv/Scripts/activate
 pip install uv
