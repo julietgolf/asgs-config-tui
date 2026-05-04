@@ -3,7 +3,7 @@
 ```bash
 git clone git@github.com:julietgolf/asgs-config-tui.git
 cd asgs-config-tui
-python -m venv .venv
+python3 -m venv .venv
 . .venv/bin/activate
 pip install uv && uv pip install .
 ```
