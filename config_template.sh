@@ -25,9 +25,9 @@ INSTANCENAME=%INSTANCENAME% # "name" of this ASGS process
 
 # Input files and templates
 
-GRIDNAME=LKOKE
-parameterPackage=default   # <-----<<
-createWind10mLayer="yes"   # <-----<<
+GRIDNAME=%GRIDNAME%        # <--<< jgf: I think this will always be LKOKE for this application
+parameterPackage=default
+createWind10mLayer="yes"
 source $SCRIPTDIR/config/mesh_defaults.sh
 
 # Physical forcing (defaults set in config/forcing_defaults.sh)
@@ -37,13 +37,13 @@ TIDEFAC=off              # tide factor recalc
 BACKGROUNDMET=off        # GFS download/forcing
    FORECASTCYCLE="06"
 TROPICALCYCLONE=on       # tropical cyclone forcing
-   VORTEXMODEL=SYMMETRIC
-   STORM=%STORM%              # storm number, e.g. 05=ernesto in 2006
-   YEAR=%YEAR%             # year of the storm
-   RSSSITE=filesystem
-   FTPSITE=$RSSSITE
-   FDIR=$WORK
-   HDIR=$WORK
+   # VORTEXMODEL=SYMMETRIC # <--<< jgf: don't use this for real time operation, only for historical storms pre-2003
+   STORM=%STORM%         # storm number, e.g. 05=ernesto in 2006
+   YEAR=%YEAR%           # year of the storm
+   #RSSSITE=filesystem   # <--<< jgf: only use this for testing or historical storms, not real time operation
+   #FTPSITE=$RSSSITE     # <--<< jgf: only use this for testing or historical storms, not real time operation
+   #FDIR=$WORK           # <--<< jgf: only use this for testing or historical storms, not real time operation
+   #HDIR=$WORK           # <--<< jgf: only use this for testing or historical storms, not real time operation
 WAVES=on                 # wave forcing
    REINITIALIZESWAN=no   # used to bounce the wave solution
 VARFLUX=off              # variable river flux forcing
@@ -52,16 +52,16 @@ CYCLETIMELIMIT="99:00:00"
 
 # Computational Resources (related defaults set in platforms.sh)
 
-NCPU=15                # number of compute CPUs for all simulations
-NCPUCAPACITY=9999
+NCPU=%NCPU%                  # number of compute CPUs for all simulations
+NCPUCAPACITY=%NCPUCAPACITY%  # <--<< jgf: set to a high number e.g., 9999 unless you want to limit the number of jobs the ASGS can submit at one time
 NUMWRITERS=0
-#PPN=40
-#JOBLAUNCHER='srun -n %totalcpu%'
+#PPN=40                           # <--<< jgf: should be removed, this is part of the platform specification
+#JOBLAUNCHER='srun -n %totalcpu%' # <--<< jgf: should be removed, this is part of the platform specification
 
 # Post processing and publication
 
 OPENDAPPOST=opendap_post2.sh
-POSTPROCESS=POSTPROCESS=( vispipe_post.sh asgs_post.sh )
+POSTPROCESS=( vispipe_post.sh asgs_post.sh )  # # <--<< jgf: removed typo
 
 # Monitoring
 
@@ -72,15 +72,17 @@ EMAILNOTIFY="no"
 
 # Initial state (overridden by STATEFILE after ASGS gets going)
 
-COLDSTARTDATE=2017090812
-HOTORCOLD=coldstart
+COLDSTARTDATE=%COLDSTARTDATE%
+HOTORCOLD=%HOTORCOLD%           # <--<< jgf: for LKOKE this will be set to coldstart
 LASTSUBDIR=null
+
+nodal_attribute_default_values["sea_surface_height_above_geoid"]=%STARTING_WATER_LEVEL% # <--<< jgf: suggest changing to %STARTING_WATER_LEVEL% just to be descriptive
 
 #
 # Scenario package
 #
 #PERCENT=default
-SCENARIOPACKAGESIZE=3
+SCENARIOPACKAGESIZE=%NUM_FORECAST_SCENARIOS%  # <--<< jgf: I know you are not working on this yet; when you get to it, set to the number of forecast scenarios defined below
 case $si in
    -2)
        ENSTORM=hindcast
@@ -90,7 +92,7 @@ case $si in
        ENSTORM=nowcast
        ;;
     0)
-       ENSTORM=nhcTrack 
+       ENSTORM=nhcTrack
        ;;
     1)
        ENSTORM=veerRight100

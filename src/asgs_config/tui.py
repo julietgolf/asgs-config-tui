@@ -3,20 +3,22 @@ import json
 import os
 import sys
 import argparse
-import logging
 from asgs_config.validator import ActiveStormValidator
 from asgs_config.config_generator import StormConfigGenerator
-
-# Configure logging
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
 
 # Constants
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
 DEFAULT_SETTINGS = {
     "template_path": "config_template.sh",
     "nhc_url": "https://www.nhc.noaa.gov/CurrentStorms.json",
-    "default_dir":"."
+    "default_dir": ".",
+    "NCPU": "15",
+    "NCPUCAPACITY": "9999",
+    "COLDSTARTDATE": "",
+    "HOTORCOLD": "coldstart",
+    "STARTING_WATER_LEVEL": "0",
+    "GRIDNAME": "LKOKE",
+    "NUM_FORECAST_SCENARIOS": "3"
 }
 
 def set_secure_permissions(path):
@@ -33,13 +35,13 @@ def set_secure_permissions(path):
             # Grant 'Users' group Execute (RX) - closest to '1' (X) as Windows usually bundles R with X
             os.system(f'icacls "{path}" /grant:r *S-1-5-32-545:(RX) /quiet')
         except Exception as e:
-            logger.warning(f"Failed to set Windows permissions: {e}")
+            pass # Silent failure for permissions on Windows if it fails
     else:
         # Unix 710: rwx--x---
         try:
             os.chmod(path, 0o710)
         except Exception as e:
-            logger.warning(f"Failed to set Unix permissions: {e}")
+            pass
 
 def load_settings():
     """Loads settings from JSON, creating default if missing."""
@@ -116,6 +118,7 @@ class StormTUI:
         self.current_field_idx = 0
         self.status_message = ""
         self.status_color = 1 # Normal
+        self.dynamic_instance_name=True
 
         # Initialize colors
         curses.start_color()
@@ -238,10 +241,37 @@ class StormTUI:
         try:
             self.selected_storm_id = storm_id
             self.generator = StormConfigGenerator(storm_id, self.settings['template_path'], self.settings.get("default_dir"))
+            
+            # System keys to skip in the TUI form
+            system_keys = {"template_path", "nhc_url", "default_dir"}
+            
             self.form_fields = [
                 {"label": "Instance Name", "attr": "instance_name", "value": self.generator.instance_name},
                 {"label": "Output Directory", "attr": "output_dir", "value": self.generator.output_dir}
             ]
+            
+            # Add placeholders found in DEFAULT_SETTINGS (excluding system keys)
+            # We iterate over DEFAULT_SETTINGS to ensure order and presence
+            for key in DEFAULT_SETTINGS:
+                if key not in system_keys:
+                    # Get value from generator if it exists as an attribute, otherwise from settings
+
+
+                    if not hasattr(self.generator,key):
+                        setattr(self.generator, key, self.settings.get(key, ""))
+
+                    val = getattr(self.generator, key)
+
+                    self.form_fields.append({
+                        "label": key,
+                        "attr": key,
+                        "value": str(val)
+                    })
+                    if key=="GRIDNAME":
+                        new_instance_name=self.generator._base_instance_name.replace("%GRIDNAME%",str(val))
+                        self.form_fields[0]['value']=new_instance_name
+                        self.generator.instance_name=new_instance_name
+            
             self.state = "EDIT"
             self.current_field_idx = 0
         except Exception as e:
@@ -253,6 +283,15 @@ class StormTUI:
         h, w = self.stdscr.getmaxyx()
         new_val = get_input(self.stdscr, h - 2, 2, f"New {field['label']}: ", initial_text=field['value'])
         field['value'] = new_val
+        if self.dynamic_instance_name:
+            if field["label"]=="INSTANCE NAME" and new_val!=self.generator.instance_name:
+                self.dynamic_instance_name=False            
+            elif field['label']=="GRIDNAME":
+                new_instance_name=self.generator._base_instance_name.replace("%GRIDNAME%",new_val)
+                self.form_fields[0]['value']=new_instance_name
+                self.generator.instance_name=new_instance_name
+
+        # Update generator attribute immediately
         setattr(self.generator, field['attr'], new_val)
 
     def save_config(self):
@@ -275,23 +314,29 @@ def run():
     parser.add_argument("--set-url", help="Permanently set the NHC JSON URL in settings")
     parser.add_argument("--set-template", help="Permanently set the template path in settings")
     parser.add_argument("--set-dir", help="Permanently set the default output directory in settings")
+    parser.add_argument("--set", nargs=2, metavar=('KEY', 'VAL'), help="Permanently set any setting key to a value")
+    parser.add_argument("--list-settings", action="store_true", help="Dump all existing settings in settings.json")
     args = parser.parse_args()
     
+    if args.list_settings:
+        settings = load_settings()
+        print(json.dumps(settings, indent=4))
+        return
+
     # Handle settings updates
-    if args.set_url or args.set_template or args.set_dir:
+    if args.set_url or args.set_template or args.set_dir or args.set:
         settings = load_settings()
         if args.set_url:
             settings["nhc_url"] = args.set_url
-            print(f"Setting 'nhc_url' updated to: {args.set_url}")
         if args.set_template:
             settings["template_path"] = args.set_template
-            print(f"Setting 'template_path' updated to: {args.set_template}")
         if args.set_dir:
             settings["default_dir"] = args.set_dir
-            print(f"Setting 'default_dir' updated to: {args.set_dir}")
+        if args.set:
+            key, val = args.set
+            settings[key] = val
+            print(f"Setting '{key}' updated to: {val}")
+        
         save_settings(settings)
-        # If we only wanted to set values, we could exit here, but usually, 
-        # people might want to run the TUI after setting. 
-        # For now, let's continue to the TUI.
 
     curses.wrapper(main, args.url)

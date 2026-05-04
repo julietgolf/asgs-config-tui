@@ -40,6 +40,7 @@ class StormConfigGenerator:
         username = getpass.getuser()
 
         # 4. Generate default replacement values (public attributes for user override)
+        self._base_instance_name = f"{grid_name}_{self.storm_id}_{username}"
         self.instance_name = f"{grid_name}_{self.storm_id}_{username}"
 
     def _extract_grid_name(self) -> str:
@@ -76,10 +77,7 @@ class StormConfigGenerator:
         Returns:
             The absolute path to the generated file.
         
-        Replaces:
-            %YEAR% -> self.year
-            %STORM% -> self.storm_num
-            %INSTANCENAME% -> self.instance_name
+        Replaces placeholders matching %ATTR% where ATTR is any attribute of this instance.
         """
         if not os.path.exists(self.template_path):
             raise FileNotFoundError(f"Template file not found: {self.template_path}")
@@ -87,10 +85,15 @@ class StormConfigGenerator:
         with open(self.template_path, 'r') as f:
             content = f.read()
 
-        # Perform replacements
-        content = content.replace("%YEAR%", self.year)
-        content = content.replace("%STORM%", self.storm_num)
-        content = content.replace("%INSTANCENAME%", self.instance_name)
+        # Perform replacements for all public attributes
+        # This handles %YEAR%, %STORM%, %INSTANCENAME% and any new ones like %NCPU%
+        for attr, value in self.__dict__.items():
+            if not attr.startswith('_'):
+                placeholder = f"%{attr.upper()}%"
+                content = content.replace(placeholder, str(value))
+        
+        # Special case for instance_name as it's often referred to as %INSTANCENAME%
+        content = content.replace("%INSTANCENAME%", str(self.instance_name))
 
         # Ensure output directory exists
         if not os.path.exists(self.output_dir):
