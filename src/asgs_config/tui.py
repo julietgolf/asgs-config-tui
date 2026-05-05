@@ -14,7 +14,7 @@ DEFAULT_SETTINGS = {
     "default_dir": ".",
     "NCPU": "15",
     "NCPUCAPACITY": "9999",
-    "COLDSTARTDATE": "",
+    #"COLDSTARTDATE": "",
     "HOTORCOLD": "coldstart",
     "STARTING_WATER_LEVEL": "0",
     "GRIDNAME": "LKOKE"
@@ -333,8 +333,14 @@ def main(stdscr, nhc_url, historical_path=None):
     StormTUI(stdscr, nhc_url, historical_path).run()
 
 def run():
-    p = argparse.ArgumentParser(); p.add_argument("--url"); p.add_argument("--set-url"); p.add_argument("--set-template"); p.add_argument("--set-dir"); p.add_argument("--set", nargs=2); p.add_argument("--list-settings", action="store_true")
-    p.add_argument("-H", "--historical", help="Set historical mode with provided path")
+    p = argparse.ArgumentParser()
+    p.add_argument("--url",help="Set an alternate url for an NHC style advisory json.")
+    p.add_argument("--set-url",help="Change the value for url in the settings file.")
+    p.add_argument("--set-template",help="Change the value for template in the settings file.")
+    p.add_argument("--set-dir",help="Change the value for dir in the settings file.")
+    p.add_argument("--set", nargs=2,help="Set the default value for a generic setting.")
+    p.add_argument("--list-settings", action="store_true",help="List of keys to be used by --set.")
+    p.add_argument("-H", "--historical", help="Set historical mode with provided path.")
     args = p.parse_args()
     if args.list_settings: print(json.dumps(load_settings(), indent=4)); return
     if args.set_url or args.set_template or args.set_dir or args.set:
