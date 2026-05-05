@@ -14,7 +14,7 @@ DEFAULT_SETTINGS = {
     "default_dir": ".",
     "NCPU": "15",
     "NCPUCAPACITY": "9999",
-    #"COLDSTARTDATE": "",
+    "COLDSTARTDATE": "2017090812",
     "HOTORCOLD": "coldstart",
     "STARTING_WATER_LEVEL": "0",
     "GRIDNAME": "LKOKE"

@@ -75,8 +75,8 @@ EMAILNOTIFY="no"
 
 # Initial state (overridden by STATEFILE after ASGS gets going)
 
-COLDSTARTDATE=$(get-coldstart-date)
-#COLDSTARTDATE=%COLDSTARTDATE%
+#COLDSTARTDATE=$(get-coldstart-date)
+COLDSTARTDATE=%COLDSTARTDATE%
 HOTORCOLD=%HOTORCOLD%           # <--<< jgf: for LKOKE this will be set to coldstart
 LASTSUBDIR=null
 
