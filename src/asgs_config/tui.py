@@ -17,30 +17,23 @@ DEFAULT_SETTINGS = {
     "COLDSTARTDATE": "",
     "HOTORCOLD": "coldstart",
     "STARTING_WATER_LEVEL": "0",
-    "GRIDNAME": "LKOKE",
-    "NUM_FORECAST_SCENARIOS": "3"
+    "GRIDNAME": "LKOKE"
 }
 
 def set_secure_permissions(path):
     """Sets file permissions to 710 (Owner: RWX, Group: X, Others: None) or Windows equivalent."""
     if sys.platform == "win32":
-        # Windows equivalent: Owner Full Control, Group Execute (Read/Execute), Others None
-        # We use icacls to set granular permissions
         try:
-            # Disable inheritance and remove all permissions
             os.system(f'icacls "{path}" /inheritance:r /quiet')
-            # Grant current user Full Control
             username = os.getlogin()
             os.system(f'icacls "{path}" /grant:r "{username}":(F) /quiet')
-            # Grant 'Users' group Execute (RX) - closest to '1' (X) as Windows usually bundles R with X
             os.system(f'icacls "{path}" /grant:r *S-1-5-32-545:(RX) /quiet')
-        except Exception as e:
-            pass # Silent failure for permissions on Windows if it fails
+        except Exception:
+            pass
     else:
-        # Unix 710: rwx--x---
         try:
             os.chmod(path, 0o710)
-        except Exception as e:
+        except Exception:
             pass
 
 def load_settings():
@@ -54,7 +47,6 @@ def load_settings():
     with open(SETTINGS_FILE, 'r') as f:
         settings = json.load(f)
     
-    # Ensure all default keys exist
     updated = False
     for k, v in DEFAULT_SETTINGS.items():
         if k not in settings:
@@ -71,7 +63,7 @@ def save_settings(settings):
         json.dump(settings, f, indent=4)
     set_secure_permissions(SETTINGS_FILE)
 
-def get_input(stdscr, y, x, prompt, initial_text="", max_len=50, secret=False):
+def get_input(stdscr, y, x, prompt, initial_text="", max_len=50):
     """Safely gets text input from the user in curses."""
     curses.echo()
     stdscr.addstr(y, x, prompt)
@@ -103,32 +95,30 @@ def get_input(stdscr, y, x, prompt, initial_text="", max_len=50, secret=False):
     return "".join(buf)
 
 class StormTUI:
-    def __init__(self, stdscr, nhc_url=None):
+    def __init__(self, stdscr, nhc_url=None, historical_path=None):
         self.stdscr = stdscr
         self.settings = load_settings()
-        
-        # Override settings URL if provided via CLI flag
+        self.historical_path = historical_path
         url = nhc_url if nhc_url else self.settings.get("nhc_url")
         self.validator = ActiveStormValidator(url=url)
-        
         self.generator = None
         self.state = "SELECT"
         self.selected_storm_id = None
         self.form_fields = []
+        self.scenarios = [{"name": "nhcConsensus", "percent": 0}]
         self.current_field_idx = 0
         self.status_message = ""
-        self.status_color = 1 # Normal
-        self.dynamic_instance_name=True
+        self.status_color = 1
+        self.dynamic_instance_name = True
 
-        # Initialize colors
         curses.start_color()
-        curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)   # Normal
-        curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_CYAN)    # Selected
-        curses.init_pair(3, curses.COLOR_RED, curses.COLOR_BLACK)     # Warning/Error
-        curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)   # Success
-        curses.init_pair(5, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # Header
+        curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
+        curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_CYAN)
+        curses.init_pair(3, curses.COLOR_RED, curses.COLOR_BLACK)
+        curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)
+        curses.init_pair(5, curses.COLOR_YELLOW, curses.COLOR_BLACK)
 
-        curses.curs_set(0) # Hide cursor
+        curses.curs_set(0)
         self.stdscr.keypad(True)
 
     def run(self):
@@ -138,23 +128,22 @@ class StormTUI:
                 self.screen_select()
             elif self.state == "EDIT":
                 self.screen_edit()
+            elif self.state == "SCENARIOS":
+                self.screen_scenarios()
             elif self.state == "CONFIRM":
                 self.screen_confirm()
             self.stdscr.refresh()
-            
             ch = self.stdscr.getch()
             self.handle_input(ch)
 
     def screen_select(self):
         h, w = self.stdscr.getmaxyx()
         self.stdscr.addstr(1, 2, "Storm Selection Menu", curses.color_pair(5) | curses.A_BOLD)
-        
         if self.validator.unvalidated_mode:
             self.stdscr.addstr(2, 2, "WARNING: Could not connect to NHC. Running in unvalidated mode.", curses.color_pair(3) | curses.A_BOLD)
             self.stdscr.addstr(3, 2, f"Source: {self.validator.url}", curses.color_pair(1))
         else:
             self.stdscr.addstr(2, 2, f"Connected to: {self.validator.url}", curses.color_pair(4))
-        
         storms = self.validator.active_storms
         if not storms:
             self.stdscr.addstr(5, 2, "No active storms currently.")
@@ -162,181 +151,197 @@ class StormTUI:
             self.stdscr.addstr(5, 2, f"{'Name':<15} {'ID':<15}", curses.A_UNDERLINE)
             for i, storm in enumerate(storms):
                 style = curses.color_pair(2) if i == self.current_field_idx else curses.color_pair(1)
-                name = storm.get("name", "Unknown")
-                sid = storm.get("id", "N/A")
-                self.stdscr.addstr(6 + i, 2, f"{name:<15} {sid:<15}", style)
-
+                self.stdscr.addstr(6 + i, 2, f"{storm.get('name', 'Unknown'):<15} {storm.get('id', 'N/A'):<15}", style)
         self.stdscr.addstr(h - 3, 2, "UP/DOWN: Navigate | ENTER: Select | C: Custom ID | Q: Quit", curses.color_pair(5))
 
     def screen_edit(self):
         h, w = self.stdscr.getmaxyx()
-        self.stdscr.addstr(1, 2, f"Configuration Editor - Storm: {self.selected_storm_id}", curses.color_pair(5) | curses.A_BOLD)
-        
+        self.stdscr.addstr(1, 2, f"Variable Form Editor - Storm: {self.selected_storm_id}", curses.color_pair(5) | curses.A_BOLD)
         for i, field in enumerate(self.form_fields):
             style = curses.color_pair(2) if i == self.current_field_idx else curses.color_pair(1)
-            label = field['label']
-            value = field['value']
-            self.stdscr.addstr(4 + i*2, 2, f"{label}:", curses.A_BOLD)
-            self.stdscr.addstr(4 + i*2, 20, f" {value} ", style)
+            self.stdscr.addstr(4 + i*2, 2, f"{field['label']}:", curses.A_BOLD)
+            self.stdscr.addstr(4 + i*2, 25, f" {field['value']} ", style)
+        self.stdscr.addstr(h - 3, 2, "UP/DOWN: Navigate | ENTER: Edit Field | S: Proceed to Scenarios | B/ESC: Back", curses.color_pair(5))
 
-        self.stdscr.addstr(h - 3, 2, "UP/DOWN: Navigate | ENTER: Edit Field | S: Save | B/ESC: Back", curses.color_pair(5))
+    def screen_scenarios(self):
+        h, w = self.stdscr.getmaxyx()
+        self.stdscr.addstr(1, 2, "Scenario Editor", curses.color_pair(5) | curses.A_BOLD)
+        for i, sc in enumerate(self.scenarios):
+            style = curses.color_pair(2) if i == self.current_field_idx else curses.color_pair(1)
+            self.stdscr.addstr(4 + i, 2, f"{i}) {sc['name']}", style)
+        
+        plus_style = curses.color_pair(2) if self.current_field_idx == len(self.scenarios) else curses.color_pair(1)
+        self.stdscr.addstr(5 + len(self.scenarios), 2, "[+]", plus_style)
+        
+        self.stdscr.addstr(h - 3, 2, "UP/DOWN: Navigate | ENTER: Add/Select | D: Delete | S: Confirm & Save | B: Back", curses.color_pair(5))
 
     def screen_confirm(self):
         h, w = self.stdscr.getmaxyx()
         self.stdscr.addstr(1, 2, "Confirmation", curses.color_pair(5) | curses.A_BOLD)
         self.stdscr.addstr(4, 2, self.status_message, curses.color_pair(self.status_color))
-        
         self.stdscr.addstr(h - 3, 2, "N: Create New Config | Q: Exit", curses.color_pair(5))
 
     def handle_input(self, ch):
-        if ch == curses.KEY_RESIZE:
-            return
-
+        if ch == curses.KEY_RESIZE: return
         if self.state == "SELECT":
             storms = self.validator.active_storms
-            if ch == ord('q') or ch == ord('Q'):
-                self.state = "EXIT"
-            elif ch == curses.KEY_UP:
-                self.current_field_idx = max(0, self.current_field_idx - 1)
-            elif ch == curses.KEY_DOWN:
-                if storms:
-                    self.current_field_idx = min(len(storms) - 1, self.current_field_idx + 1)
-            elif ch in (10, 13, curses.KEY_ENTER):
-                if storms:
-                    self.init_generator(storms[self.current_field_idx]['id'])
-            elif ch in (ord('c'), ord('C')):
-                self.prompt_custom_id()
-
+            if ch in (ord('q'), ord('Q')): self.state = "EXIT"
+            elif ch == curses.KEY_UP: self.current_field_idx = max(0, self.current_field_idx - 1)
+            elif ch == curses.KEY_DOWN and storms: self.current_field_idx = min(len(storms) - 1, self.current_field_idx + 1)
+            elif ch in (10, 13, curses.KEY_ENTER) and storms: self.init_generator(storms[self.current_field_idx]['id'])
+            elif ch in (ord('c'), ord('C')): self.prompt_custom_id()
         elif self.state == "EDIT":
-            if ch in (27, ord('b'), ord('B')): # ESC or B
-                self.state = "SELECT"
-                self.current_field_idx = 0
-            elif ch == curses.KEY_UP:
-                self.current_field_idx = max(0, self.current_field_idx - 1)
-            elif ch == curses.KEY_DOWN:
-                self.current_field_idx = min(len(self.form_fields) - 1, self.current_field_idx + 1)
+            if ch in (27, ord('b'), ord('B')): self.state = "SELECT"; self.current_field_idx = 0
+            elif ch == curses.KEY_UP: self.current_field_idx = max(0, self.current_field_idx - 1)
+            elif ch == curses.KEY_DOWN: self.current_field_idx = min(len(self.form_fields) - 1, self.current_field_idx + 1)
+            elif ch in (10, 13, curses.KEY_ENTER): self.edit_field()
+            elif ch in (ord('s'), ord('S')): self.state = "SCENARIOS"; self.current_field_idx = 0
+        elif self.state == "SCENARIOS":
+            if ch in (ord('b'), ord('B')): self.state = "EDIT"; self.current_field_idx = 0
+            elif ch == curses.KEY_UP: self.current_field_idx = max(0, self.current_field_idx)
+            elif ch == curses.KEY_UP: self.current_field_idx = max(0, self.current_field_idx - 1)
+            elif ch == curses.KEY_DOWN: self.current_field_idx = min(len(self.scenarios), self.current_field_idx + 1)
             elif ch in (10, 13, curses.KEY_ENTER):
-                self.edit_field()
-            elif ch in (ord('s'), ord('S')):
-                self.save_config()
-
+                if self.current_field_idx == len(self.scenarios): self.prompt_add_scenario()
+                else: pass # No specific action for selecting existing scenario except confirmation
+            elif ch in (ord('d'), ord('D'), curses.KEY_DC):
+                if 0 < self.current_field_idx < len(self.scenarios):
+                    self.scenarios.pop(self.current_field_idx)
+                    self.current_field_idx = min(self.current_field_idx, len(self.scenarios))
+            elif ch in (ord('s'), ord('S')): self.save_config()
         elif self.state == "CONFIRM":
-            if ch in (ord('n'), ord('N')):
-                self.state = "SELECT"
-                self.current_field_idx = 0
-                # Refresh data from the same URL
-                self.validator = ActiveStormValidator(url=self.validator.url)
-            elif ch in (ord('q'), ord('Q')):
-                self.state = "EXIT"
+            if ch in (ord('n'), ord('N')): self.state = "SELECT"; self.current_field_idx = 0; self.validator = ActiveStormValidator(url=self.validator.url)
+            elif ch in (ord('q'), ord('Q')): self.state = "EXIT"
 
     def prompt_custom_id(self):
         h, w = self.stdscr.getmaxyx()
-        custom_id = get_input(self.stdscr, h - 2, 2, "Enter 8-char Storm ID: ", max_len=8)
-        if len(custom_id) == 8:
-            self.init_generator(custom_id)
-        else:
-            self.status_message = "Invalid ID length. Must be 8 characters."
+        cid = get_input(self.stdscr, h - 2, 2, "Enter 8-char Storm ID: ", max_len=8)
+        if len(cid) == 8: self.init_generator(cid)
 
     def init_generator(self, storm_id):
         try:
             self.selected_storm_id = storm_id
             self.generator = StormConfigGenerator(storm_id, self.settings['template_path'], self.settings.get("default_dir"))
             
-            # System keys to skip in the TUI form
+            # Set CLI-driven historical attributes
+            self.generator.historical = "1" if self.historical_path else "0"
+            self.generator.fdir = self.historical_path if self.historical_path else ""
+
             system_keys = {"template_path", "nhc_url", "default_dir"}
-            
             self.form_fields = [
-                {"label": "Instance Name", "attr": "instance_name", "value": self.generator.instance_name},
-                {"label": "Output Directory", "attr": "output_dir", "value": self.generator.output_dir}
+                {"label": "INSTANCE NAME", "attr": "instance_name", "value": self.generator.instance_name},
+                {"label": "OUTPUT DIRECTORY", "attr": "output_dir", "value": self.generator.output_dir}
             ]
-            
-            # Add placeholders found in DEFAULT_SETTINGS (excluding system keys)
-            # We iterate over DEFAULT_SETTINGS to ensure order and presence
             for key in DEFAULT_SETTINGS:
                 if key not in system_keys:
-                    # Get value from generator if it exists as an attribute, otherwise from settings
-
-
-                    if not hasattr(self.generator,key):
-                        setattr(self.generator, key, self.settings.get(key, ""))
-
+                    if not hasattr(self.generator, key): setattr(self.generator, key, self.settings.get(key, ""))
                     val = getattr(self.generator, key)
-
-                    self.form_fields.append({
-                        "label": key,
-                        "attr": key,
-                        "value": str(val)
-                    })
-                    if key=="GRIDNAME":
-                        new_instance_name=self.generator._base_instance_name.replace("%GRIDNAME%",str(val))
-                        self.form_fields[0]['value']=new_instance_name
-                        self.generator.instance_name=new_instance_name
-            
-            self.state = "EDIT"
-            self.current_field_idx = 0
+                    self.form_fields.append({"label": key, "attr": key, "value": str(val)})
+                    if key == "GRIDNAME":
+                        ni = self.generator._base_instance_name.replace("%GRIDNAME%", str(val))
+                        self.form_fields[0]['value'] = ni; self.generator.instance_name = ni
+            self.state = "EDIT"; self.current_field_idx = 0
         except Exception as e:
-            self.stdscr.addstr(10, 2, f"Error: {e}", curses.color_pair(3))
-            self.stdscr.getch()
+            self.stdscr.addstr(10, 2, f"Error: {e}", curses.color_pair(3)); self.stdscr.getch()
 
     def edit_field(self):
         field = self.form_fields[self.current_field_idx]
         h, w = self.stdscr.getmaxyx()
-        new_val = get_input(self.stdscr, h - 2, 2, f"New {field['label']}: ", initial_text=field['value'])
-        field['value'] = new_val
+        nv = get_input(self.stdscr, h - 2, 2, f"New {field['label']}: ", initial_text=field['value'])
+        field['value'] = nv
         if self.dynamic_instance_name:
-            if field["label"]=="INSTANCE NAME" and new_val!=self.generator.instance_name:
-                self.dynamic_instance_name=False            
-            elif field['label']=="GRIDNAME":
-                new_instance_name=self.generator._base_instance_name.replace("%GRIDNAME%",new_val)
-                self.form_fields[0]['value']=new_instance_name
-                self.generator.instance_name=new_instance_name
+            if field["label"] == "INSTANCE NAME" and nv != self.generator.instance_name: self.dynamic_instance_name = False
+            elif field['label'] == "GRIDNAME":
+                ni = self.generator._base_instance_name.replace("%GRIDNAME%", nv)
+                self.form_fields[0]['value'] = ni; self.generator.instance_name = ni
+        setattr(self.generator, field['attr'], nv)
 
-        # Update generator attribute immediately
-        setattr(self.generator, field['attr'], new_val)
+    def prompt_add_scenario(self):
+        options = ["nhcConsensus", "veer", "maxWindSpeed", "overlandSpeed"]
+        idx = 0
+        h, w = self.stdscr.getmaxyx()
+        while True:
+            self.stdscr.clear()
+            self.stdscr.addstr(1, 2, "Add Scenario - Select Base:", curses.color_pair(5) | curses.A_BOLD)
+            for i, opt in enumerate(options):
+                style = curses.color_pair(2) if i == idx else curses.color_pair(1)
+                self.stdscr.addstr(3 + i, 4, opt, style)
+            self.stdscr.refresh()
+            
+            ch = self.stdscr.getch()
+            if ch == curses.KEY_UP: idx = max(0, idx - 1)
+            elif ch == curses.KEY_DOWN: idx = min(len(options) - 1, idx + 1)
+            elif ch in (10, 13, curses.KEY_ENTER):
+                base = options[idx]
+                if base == "nhcConsensus":
+                    self.add_scenario_to_list("nhcConsensus", 0)
+                    return
+                else:
+                    # Inline prompt
+                    prompt = f" Percent:      (-100 ≤ p < 0 < p ≤ 100)"
+                    y, x = 3 + idx, 4 + len(base)
+                    val_str = get_input(self.stdscr, y, x, prompt)
+                    try:
+                        p = int(val_str)
+                        if p == 0 or p < -100 or p > 100: raise ValueError()
+                        mapping = {
+                            "veer": ("Left", "Right"),
+                            "maxWindSpeed": ("Slower", "Faster"),
+                            "overlandSpeed": ("Slower", "Faster")
+                        }
+                        desc = mapping[base][1 if p > 0 else 0]
+                        name = f"{base}{desc}{abs(p)}"
+                        self.add_scenario_to_list(name, p)
+                        return
+                    except ValueError:
+                        self.stdscr.addstr(h-2, 2, "Invalid input. Must be integer (-100 to 100, not 0).", curses.color_pair(3))
+                        self.stdscr.getch()
+            elif ch == 27: return
+
+    def add_scenario_to_list(self, name, percent):
+        if any(s['name'] == name for s in self.scenarios):
+            self.stdscr.addstr(7, 2, f"Warning: Scenario '{name}' already exists.", curses.color_pair(3))
+            self.stdscr.getch()
+        else:
+            self.scenarios.append({"name": name, "percent": percent})
+
+    def format_scenarios_block(self):
+        block = ""
+        for i, sc in enumerate(self.scenarios):
+            block += f"    {i})\n"
+            if sc['name'] == "nhcConsensus":
+                block += "        ENSTORM=nhcTrack\n"
+            else:
+                block += f"        ENSTORM={sc['name']}\n"
+                block += f"        PERCENT={sc['percent']}\n"
+            block += "        ;;\n"
+        return block
 
     def save_config(self):
         try:
+            self.generator.storm_scenerios = self.format_scenarios_block()
+            setattr(self.generator, "NUM_FORECAST_SCENARIOS", str(len(self.scenarios) + 1))
             path = self.generator.write_config()
             self.status_message = f"Configuration saved successfully to {path}"
-            self.status_color = 4 # Success
+            self.status_color = 4
         except Exception as e:
             self.status_message = f"Failed to save config: {e}"
-            self.status_color = 3 # Error
+            self.status_color = 3
         self.state = "CONFIRM"
 
-def main(stdscr, nhc_url):
-    tui = StormTUI(stdscr, nhc_url=nhc_url)
-    tui.run()
+def main(stdscr, nhc_url, historical_path=None):
+    StormTUI(stdscr, nhc_url, historical_path).run()
 
 def run():
-    parser = argparse.ArgumentParser(description="Storm Configuration Generator TUI")
-    parser.add_argument("--url", help="Custom NHC JSON URL")
-    parser.add_argument("--set-url", help="Permanently set the NHC JSON URL in settings")
-    parser.add_argument("--set-template", help="Permanently set the template path in settings")
-    parser.add_argument("--set-dir", help="Permanently set the default output directory in settings")
-    parser.add_argument("--set", nargs=2, metavar=('KEY', 'VAL'), help="Permanently set any setting key to a value")
-    parser.add_argument("--list-settings", action="store_true", help="Dump all existing settings in settings.json")
-    args = parser.parse_args()
-    
-    if args.list_settings:
-        settings = load_settings()
-        print(json.dumps(settings, indent=4))
-        return
-
-    # Handle settings updates
+    p = argparse.ArgumentParser(); p.add_argument("--url"); p.add_argument("--set-url"); p.add_argument("--set-template"); p.add_argument("--set-dir"); p.add_argument("--set", nargs=2); p.add_argument("--list-settings", action="store_true")
+    p.add_argument("-H", "--historical", help="Set historical mode with provided path")
+    args = p.parse_args()
+    if args.list_settings: print(json.dumps(load_settings(), indent=4)); return
     if args.set_url or args.set_template or args.set_dir or args.set:
-        settings = load_settings()
-        if args.set_url:
-            settings["nhc_url"] = args.set_url
-        if args.set_template:
-            settings["template_path"] = args.set_template
-        if args.set_dir:
-            settings["default_dir"] = args.set_dir
-        if args.set:
-            key, val = args.set
-            settings[key] = val
-            print(f"Setting '{key}' updated to: {val}")
-        
-        save_settings(settings)
-
-    curses.wrapper(main, args.url)
+        s = load_settings()
+        if args.set_url: s["nhc_url"] = args.set_url
+        if args.set_template: s["template_path"] = args.set_template
+        if args.set_dir: s["default_dir"] = args.set_dir
+        if args.set: s[args.set[0]] = args.set[1]
+        save_settings(s)
+    curses.wrapper(main, args.url, args.historical)

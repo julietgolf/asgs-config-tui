@@ -40,10 +40,13 @@ TROPICALCYCLONE=on       # tropical cyclone forcing
    # VORTEXMODEL=SYMMETRIC # <--<< jgf: don't use this for real time operation, only for historical storms pre-2003
    STORM=%STORM%         # storm number, e.g. 05=ernesto in 2006
    YEAR=%YEAR%           # year of the storm
-   #RSSSITE=filesystem   # <--<< jgf: only use this for testing or historical storms, not real time operation
-   #FTPSITE=$RSSSITE     # <--<< jgf: only use this for testing or historical storms, not real time operation
-   #FDIR=$WORK           # <--<< jgf: only use this for testing or historical storms, not real time operation
-   #HDIR=$WORK           # <--<< jgf: only use this for testing or historical storms, not real time operation
+   HISTORICAL=%HISTORICAL%
+   if [ $HISTORICAL -eq 1 ];then
+      RSSSITE=filesystem   # <--<< jgf: only use this for testing or historical storms, not real time operation
+      FTPSITE=$RSSSITE     # <--<< jgf: only use this for testing or historical storms, not real time operation
+      FDIR=%FDIR%           # <--<< jgf: only use this for testing or historical storms, not real time operation
+      HDIR=$FDIR           # <--<< jgf: only use this for testing or historical storms, not real time operation
+   fi
 WAVES=on                 # wave forcing
    REINITIALIZESWAN=no   # used to bounce the wave solution
 VARFLUX=off              # variable river flux forcing
@@ -84,24 +87,11 @@ nodal_attribute_default_values["sea_surface_height_above_geoid"]=%STARTING_WATER
 #PERCENT=default
 SCENARIOPACKAGESIZE=%NUM_FORECAST_SCENARIOS%  # <--<< jgf: I know you are not working on this yet; when you get to it, set to the number of forecast scenarios defined below
 case $si in
-   -2)
-       ENSTORM=hindcast
-       ;;
    -1)
        # do nothing ... this is not a forecast
        ENSTORM=nowcast
        ;;
-    0)
-       ENSTORM=nhcTrack
-       ;;
-    1)
-       ENSTORM=veerRight100
-       PERCENT=100
-       ;;
-    2)
-       ENSTORM=veerLeft100
-       PERCENT=-100
-       ;;
+%STORM_SCENERIOS%
     *)
        echo "CONFIGURATION ERROR: Unknown ensemble member number: '$si'."
       ;;

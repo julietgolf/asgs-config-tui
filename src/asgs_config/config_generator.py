@@ -30,7 +30,7 @@ class StormConfigGenerator:
 
         # 1. Parse storm_id
         # Format: [basin:2][number:2][year:4]
-        self.storm_num = storm_id[2:4]
+        self.storm = storm_id[2:4]
         self.year = storm_id[4:8]
 
         # 2. Read template and extract GRIDNAME
@@ -42,6 +42,7 @@ class StormConfigGenerator:
         # 4. Generate default replacement values (public attributes for user override)
         self._base_instance_name = f"{grid_name}_{self.storm_id}_{username}"
         self.instance_name = f"{grid_name}_{self.storm_id}_{username}"
+        self.storm_scenerios = "" # Will be populated by TUI
 
     def _extract_grid_name(self) -> str:
         """
